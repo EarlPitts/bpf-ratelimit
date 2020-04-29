@@ -29,14 +29,15 @@ def main():
 
         bpf_type = int(input('> '))
 
-        soc.send(struct.pack('I I', option, bpf_type))
 
         if DEBUG:
-            filename = '../marker/marker.o'
+            filename = '../../marker/marker.o'
         else:
             filename = input('File: ')
 
         file = open(filename, 'rb')
+
+        soc.send(struct.pack('I I', option, bpf_type))
 
         while True:
             data = file.read(1024)
