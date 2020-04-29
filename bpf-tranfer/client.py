@@ -1,6 +1,8 @@
 import socket
 import struct
 
+DEBUG = 1
+
 soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 soc.connect(('localhost', 10001))
 
@@ -29,8 +31,13 @@ def main():
 
         soc.send(struct.pack('I I', option, bpf_type))
 
-        #filename = input("File: ")
-        file = open('../marker/marker.o', 'rb')
+        if DEBUG:
+            filename = '../marker/marker.o'
+        else:
+            filename = input('File: ')
+
+        file = open(filename, 'rb')
+
         while True:
             data = file.read(1024)
             soc.sendall(data)
@@ -38,10 +45,10 @@ def main():
                 break
         file.close()
 
-        resp = get_response()
+        # resp = get_response()
 
-        if resp == 0:
-            print("Success.")
+        # if resp == 0:
+        #     print("Success.")
     
         soc.close()
     

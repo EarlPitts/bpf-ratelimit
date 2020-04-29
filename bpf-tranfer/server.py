@@ -6,7 +6,6 @@ import os
 import sys
 from subprocess import Popen, PIPE
 import shutil
-import time
 
 DEBUG = 1
 
@@ -23,7 +22,7 @@ def get_tag(): # Getting the tag for the running bfp program
     tag = ''
 
     for line in resp:
-        print(line)
+        # print(line)
         if 'name' in line:
             i = 0
             splitten = line.split()
