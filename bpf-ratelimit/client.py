@@ -24,19 +24,20 @@ def main():
     option = menu()
 
     if option == 1: # Attaching
-        print('Select a type: ') 
+        print('Select a type: ')
         print('1. cgroup/skb')
 
         bpf_type = int(input('> '))
 
-        soc.send(struct.pack('I I', option, bpf_type))
 
         if DEBUG:
-            filename = '../marker/marker.o'
+            filename = '../../marker/marker.o'
         else:
             filename = input('File: ')
 
         file = open(filename, 'rb')
+
+        soc.send(struct.pack('I I', option, bpf_type))
 
         while True:
             data = file.read(1024)
@@ -49,12 +50,12 @@ def main():
 
         # if resp == 0:
         #     print("Success.")
-    
+
         soc.close()
-    
+
     if option == 2: # Detaching
 
-        soc.send(struct.pack('I I', option, 0))        
+        soc.send(struct.pack('I I', option, 0))
 
         resp = get_response()
 

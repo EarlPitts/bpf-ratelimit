@@ -14,7 +14,7 @@ NO_PROG_ATT = 1
 
 def send_response(resp_code):
     soc.send(struct.pack('I', resp_code))
-    
+
 
 def get_tag(): # Getting the tag for the running bfp program
     p = Popen(['bpftool', 'prog', 'list'], stdout=PIPE)
@@ -26,12 +26,12 @@ def get_tag(): # Getting the tag for the running bfp program
         if 'name' in line:
             i = 0
             splitten = line.split()
-            for word in splitten: 
+            for word in splitten:
                 if word == 'tag':
                     break
                 i += 1
             tag = splitten[i+1]
-            
+
     return tag
 
 
@@ -50,9 +50,8 @@ while True:
     try:
         soc, address = server.accept()
 
-        print(address) 
+        print(address)
 
-            
         cmd_pckd = soc.recv(8) # Receiving the package containing the command
         cmd = struct.unpack('I I', cmd_pckd)
         option = cmd[0]
@@ -63,7 +62,6 @@ while True:
             print(bpf_type)
 
 
-        
         if option == 1: # Attaching a new bpf program
 
             f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
@@ -83,7 +81,7 @@ while True:
 
                 if DEBUG:
                     print(tag)
-                
+
                 Popen(['bpftool', 'cgroup', 'attach', '/sys/fs/cgroup/unified/user.slice/', 'egress', 'tag', tag]) # Attaching to cgroup
 
                 #send_response(SUCCESS)
