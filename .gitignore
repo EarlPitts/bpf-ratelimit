@@ -1,1 +1,8 @@
 *.o
+bcc
+wiki
+marker
+shaper
+vm
+.vagrant
+Vagrantfile

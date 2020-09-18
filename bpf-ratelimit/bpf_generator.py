@@ -4,7 +4,7 @@ import os
 class BPFGenerator:
 
     @staticmethod
-    def generate(speed=1250000):
+    def generate(speed):
         """ Generates the BPF program with the given speed (in bytes/sec). """
 
         bpf_program = f"""

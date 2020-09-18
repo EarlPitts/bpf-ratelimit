@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usrbin/env python3
 
 import socket
 import struct
