@@ -1,112 +1,100 @@
 #!/usrbin/env python3
 
+import logging
 import socket
 import struct
-import os
-import sys
 from subprocess import Popen, PIPE
-import shutil
+import os
 
 DEBUG = 1
 
+# States
+READY = 0
+BPF_ATTACHED = 1
+
+# Responses
 SUCCESS = 0
 NO_PROG_ATT = 1
 
-def send_response(resp_code):
-    soc.send(struct.pack('I', resp_code))
+# Commands
+ATTACH = 1
+DETACH = 2
 
+class RatelimitD:
 
-def get_tag(): # Getting the tag for the running bfp program
-    p = Popen(['bpftool', 'prog', 'list'], stdout=PIPE)
-    resp = p.communicate()[0].decode('ascii').split('\n')
-    tag = ''
-
-    for line in resp:
-        # print(line)
-        if 'name' in line:
-            i = 0
-            splitten = line.split()
-            for word in splitten:
-                if word == 'tag':
-                    break
-                i += 1
-            tag = splitten[i+1]
-
-    return tag
-
-
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-if DEBUG:
-    #server.bind(('localhost', 10001))
-    ipv4 = os.popen('ip addr show ens3').read().split("inet ")[1].split("/")[0]
-    server.bind((ipv4, 10001))
-else:
-    ipv4 = os.popen('ip addr show ens3').read().split("inet ")[1].split("/")[0]
-    server.bind((ipv4, 10000))
-
-server.listen()
-
-while True:
-    try:
-        soc, address = server.accept()
-
-        print(address)
-
-        cmd_pckd = soc.recv(8) # Receiving the package containing the command
-        cmd = struct.unpack('I I', cmd_pckd)
-        option = cmd[0]
-        bpf_type = cmd[1]
-
+    def __init__(self):
+        self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if DEBUG:
-            print(option)
-            print(bpf_type)
+            self.soc.bind(('0.0.0.0', 10001))
+        else:
+            self.soc.bind(('0.0.0.0', 10000))
+
+        self.state = READY
+        self.soc.listen()
+
+    def __attach(self):
+        pass
+
+    def __detach(self):
+        pass
+
+    def __send_response(self, resp_code):
+        self.soc.send(struct.pack('<i', resp_code))
 
 
-        if option == 1: # Attaching a new bpf program
 
-            f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
-            while True:
-                data = soc.recv(1024)
-                while data:
-                    f.write(data)
-                    data = soc.recv(1024)
-                f.close()
-                #soc.close()
+    def start(self):
+        while True:
+            try:
+                soc, address = self.soc.accept()
+
+                logging.info('Accepted connection from ' + address[0] + '.')
+
+                cmd_pckd = soc.recv(4) # Receiving the package containing the command
+                cmd = struct.unpack('<i', cmd_pckd)[0]
+
+                logging.info('Command ' + str(cmd) + ' from ' + address[0] + '.')
+
+                if cmd == ATTACH:
+
+                    f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
+                    while True:
+                        data = soc.recv(1024)
+                        while data:
+                            f.write(data)
+                            data = soc.recv(1024)
+                        f.close()
+                        break
+
+                    Popen(['bpftool', 'prog', 'loadall', 'file.o', '/sys/fs/bpf/shaper', 'type', 'cgroup/skb']).wait() # Loading with bpftool
+
+                    Popen(['bpftool', 'cgroup', 'attach', '/sys/fs/cgroup/unified/user.slice/', 'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Attaching to cgroup
+
+                    logging.info('BPF program attached.')
+                    self.status = BPF_ATTACHED
+                    #self.__send_response(SUCCESS)
+
+
+                if cmd == DETACH:
+                    if self.status != BPF_ATTACHED:
+                        self.__send_response(NO_PROG_ATT)
+                        break
+
+                    Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/unified/user.slice/', 'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Removing from the kernel
+                    os.remove('/sys/fs/bpf/shaper/cgroup_skb_egress') # Remove from file system
+
+                    logging.info('BPF program detached.')
+                    #self.__send_response(SUCCESS)
+
+            except KeyboardInterrupt:
                 break
-
-            if bpf_type == 1:
-                Popen(['bpftool', 'prog', 'loadall', 'file.o', '/sys/fs/bpf/marker', 'type', 'cgroup/skb']) # Loading with bpftool
-
-                tag = get_tag() # Getting the tag for the newly attached program
-
-                if DEBUG:
-                    print(tag)
-
-                Popen(['bpftool', 'cgroup', 'attach', '/sys/fs/cgroup/unified/user.slice/', 'egress', 'tag', tag]) # Attaching to cgroup
-
-                #send_response(SUCCESS)
-
-
-        if option == 2: # Detaching a bpf program
-            tag = get_tag()
-
-            if DEBUG:
-                print(tag)
-
-            if tag != '':
-                Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/unified/user.slice/', 'egress', 'tag', tag]) # Removing from the kernel
-                shutil.rmtree('/sys/fs/bpf/marker') # Remove from file system
-
-                send_response(SUCCESS)
-            else:
-                send_response(NO_PROG_ATT)
-                print('No program attached!')
 
         soc.close()
 
+def main():
+    logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
+    daemon = RatelimitD()
+    daemon.start()
 
-
-    except KeyboardInterrupt:
-        break
-
-server.close()
+if __name__ == '__main__':
+    main()
