@@ -11,10 +11,15 @@ DEBUG = 1
 # Commands
 ATTACH = 1
 DETACH = 2
+STATUS = 3
 
 # Rsponses
 SUCCESS = 0
 NO_PROG_ATT = 1
+
+# States
+READY = 0
+BPF_ATTACHED = 1
 
 def connect(host='localhost', port='10001'):
     host = 'localhost'
@@ -74,6 +79,14 @@ def detach_shaper(conn):
     conn.close()
 
 
+def get_status(conn):
+    conn.sendall(struct.pack('<i i', STATUS, 0)) # 0 is a filler value
+    state = struct.unpack('<i', conn.recv(4))[0]
+
+    if state == READY or state == NO_PROG_ATT:
+        print('Target has no program attached.')
+    elif state == BPF_ATTACHED:
+        print('There is a BPF program currently attached to target.')
 
 def main():
     logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
@@ -82,6 +95,7 @@ def main():
 
     parser.add_argument('-a', '--attach', action='store_true', help='Attach ratelimiter.')
     parser.add_argument('-d', '--detach', action='store_true', help='Detach ratelimiter.')
+    parser.add_argument('-s', '--status', action='store_true', help='Query target for it\'s status.')
     parser.add_argument('-l', '--limit', action='store', dest='limit',
                     help='Set the limit in bytes/sec')
     parser.add_argument('-t', '--target', action='store', help='Target machine IP.')
@@ -99,6 +113,9 @@ def main():
 
     elif args.detach:
         detach_shaper(conn)
+
+    elif args.status:
+        get_status(conn)
 
     else:
         parser.print_help()
