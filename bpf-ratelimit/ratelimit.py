@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import socket
 import struct
 
@@ -29,42 +30,48 @@ def connect(host='localhost', port='10001'):
         return
 
 
-def attach_shaper(soc, limit):
-
-    s = struct.pack('<i', ATTACH)
-
-    soc.sendall(s)
+def attach_shaper(conn, limit):
 
     BPFGenerator.generate(limit)
+
+    size = os.path.getsize('shaper.o')
+
+    s = struct.pack('<i i', ATTACH, size)
+
+    conn.sendall(s)
 
     with open('shaper.o', 'rb') as f:
         while True:
             data = f.read(1024)
-            soc.sendall(data)
+            conn.sendall(data)
             if not data:
                 break
 
     logging.info('BPF Program sent to remote machine.')
 
-    # resp = struct.unpack('<i', soc.recv(4))[0]
-    # if resp == SUCCESS:
-    #     logging.info('BPF Program attached successfully.')
-    #     print('BPF Program detached successfully.')
-    # else:
-    #     print('An error occurred on the target.')
+    os.remove('shaper.o')
 
-def detach_shaper(soc):
+    resp = struct.unpack('<i', conn.recv(4))[0]
+    if resp == SUCCESS:
+        logging.info('BPF Program attached successfully.')
+        print('BPF Program attached successfully.')
+    else:
+        print('An error occurred on the target.')
 
-    s = struct.pack('<i', DETACH)
-    soc.sendall(s)
+def detach_shaper(conn):
 
-    # resp = struct.unpack('<i', soc.recv(4))[0]
-    # if resp == SUCCESS:
-    #     logging.info('BPF Program detached successfully.')
-    #     print('BPF Program detached successfully.')
-    # elif resp == NO_PROG_ATT:
-    #     logging.info('No BPF Program attached on target!')
-    #     print('No BPF Program attached on target!')
+    s = struct.pack('<i i', DETACH, 0) # The 0 is just a filler here
+    conn.sendall(s)
+
+    resp = struct.unpack('<i', conn.recv(4))[0]
+    if resp == SUCCESS:
+        logging.info('BPF Program detached successfully.')
+        print('BPF Program detached successfully.')
+    elif resp == NO_PROG_ATT:
+        logging.info('No BPF Program attached on target!')
+        print('No BPF Program attached on target!')
+
+    conn.close()
 
 
 
@@ -82,16 +89,16 @@ def main():
 
     args = parser.parse_args()
 
-    soc = connect(args.target, args.port)
+    conn = connect(args.target, args.port)
 
     if args.attach:
         if args.limit:
-            attach_shaper(soc, args.limit)
+            attach_shaper(conn, args.limit)
         else:
-            attach_shaper(soc, 1250000)
+            attach_shaper(conn, 1250000)
 
     elif args.detach:
-        detach_shaper(soc)
+        detach_shaper(conn)
 
     else:
         parser.print_help()
