@@ -3,35 +3,47 @@
 import logging
 import socket
 import struct
-from subprocess import Popen, PIPE
+import subprocess
 import os
-
-DEBUG = 1
-
-# States
-READY = 0
-BPF_ATTACHED = 1
-
-# Responses
-SUCCESS = 0
-NO_PROG_ATT = 1
 
 # Commands
 ATTACH = 1
 DETACH = 2
 STATUS = 3
 
+# Rsponses
+SUCCESS = 4
+NO_PROG_ATT = 5
+ERROR = 6
+
+# States
+READY = 7
+BPF_ATTACHED = 8
+
 class RatelimitD:
 
     def __init__(self):
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if DEBUG:
-            self.soc.bind(('0.0.0.0', 10001))
-        else:
-            self.soc.bind(('0.0.0.0', 10000))
+        self.soc.bind(('0.0.0.0', 10001))
 
         self.state = READY
         self.soc.listen()
+
+
+    def __repair(self):
+        """ Tries to automatically correct the problem. """
+        try:
+            subprocess.check_call(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/unified/user.slice/', \
+               'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress'])
+        except subprocess.CalledProcessError:
+            logging.info('Repair: BPF program seems to be detached.')
+
+        try:
+            os.remove('/sys/fs/bpf/shaper/cgroup_skb_egress') # Remove from file system
+        except FileNotFoundError:
+            logging.info('Repair: BPF program is already deleted from the filesystem.')
+
+        self.state = NO_PROG_ATT
 
 
     def __attach(self, conn, size):
@@ -42,11 +54,19 @@ class RatelimitD:
             size -= 1024
         f.close()
 
-        Popen(['bpftool', 'prog', 'loadall', 'file.o', '/sys/fs/bpf/shaper', \
-               'type', 'cgroup/skb']).wait() # Loading with bpftool
+        try:
+            subprocess.check_call(['bpftool', 'prog', 'loadall', 'file.o', '/sys/fs/bpf/shaper', \
+                'type', 'cgroup/skb']) # Loading with bpftool
 
-        Popen(['bpftool', 'cgroup', 'attach', '/sys/fs/cgroup/unified/user.slice/', \
-               'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Attaching to cgroup
+            subprocess.check_call(['bpftool', 'cgroup', 'attach', '/sys/fs/cgroup/unified/user.slice/', \
+                'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']) # Attaching to cgroup
+
+        except subprocess.CalledProcessError:
+            logging.error('An error occurred while attaching the BPF program.')
+            conn.sendall(struct.pack('<i', ERROR))
+            self.state = ERROR
+            self.__repair()
+            return
 
         logging.info('BPF program attached.')
         self.state = BPF_ATTACHED
@@ -58,7 +78,7 @@ class RatelimitD:
             conn.sendall(struct.pack('<i', NO_PROG_ATT))
             return
 
-        Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/unified/user.slice/', \
+        subprocess.Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/unified/user.slice/', \
                'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Removing from the kernel
 
         os.remove('/sys/fs/bpf/shaper/cgroup_skb_egress') # Remove from file system
@@ -68,6 +88,7 @@ class RatelimitD:
 
 
     def __send_state(self, conn):
+        breakpoint()
         conn.sendall(struct.pack('<i', self.state))
 
     def start(self):

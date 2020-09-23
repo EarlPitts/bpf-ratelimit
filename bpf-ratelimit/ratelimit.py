@@ -6,20 +6,19 @@ import struct
 
 from bpf_generator import BPFGenerator
 
-DEBUG = 1
-
 # Commands
 ATTACH = 1
 DETACH = 2
 STATUS = 3
 
 # Rsponses
-SUCCESS = 0
-NO_PROG_ATT = 1
+SUCCESS = 4
+NO_PROG_ATT = 5
+ERROR = 6
 
 # States
-READY = 0
-BPF_ATTACHED = 1
+READY = 7
+BPF_ATTACHED = 8
 
 def connect(host='localhost', port='10001'):
     host = 'localhost'
@@ -61,7 +60,7 @@ def attach_shaper(conn, limit):
         logging.info('BPF Program attached successfully.')
         print('BPF Program attached successfully.')
     else:
-        print('An error occurred on the target.')
+        print('An error occurred while attaching the program. Try again.')
 
 def detach_shaper(conn):
 
@@ -75,6 +74,9 @@ def detach_shaper(conn):
     elif resp == NO_PROG_ATT:
         logging.info('No BPF Program attached on target!')
         print('No BPF Program attached on target!')
+    else:
+        print('An error occurred while attaching the program.')
+
 
     conn.close()
 
@@ -87,6 +89,8 @@ def get_status(conn):
         print('Target has no program attached.')
     elif state == BPF_ATTACHED:
         print('There is a BPF program currently attached to target.')
+    else:
+        print('There were some prolems in the last operation. Try again.')
 
 def main():
     logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
