@@ -35,14 +35,26 @@ def connect(host='localhost', port='10001'):
 
 
 def attach_shaper(conn, limit):
-
     BPFGenerator.generate(limit)
 
     size = os.path.getsize('shaper.o')
 
-    s = struct.pack('<i i', ATTACH, size)
+    conn.sendall(struct.pack('<i i', ATTACH, size))
 
-    conn.sendall(s)
+    state = struct.unpack('<i', conn.recv(4))[0]
+
+    if state == BPF_ATTACHED:
+        option = ''
+        while option.lower() != 'y' and option.lower() != 'n':
+            option = input('A BPF program is already attached to the target. ' + \
+                'Attach the new one? (y/n)\n')
+
+        if option.lower() != 'y':
+            conn.sendall(struct.pack('<i', NO_PROG_ATT))
+            os.remove('shaper.o')
+            return
+        else:
+            conn.sendall(struct.pack('<i', ATTACH))
 
     with open('shaper.o', 'rb') as f:
         while True:
@@ -91,6 +103,8 @@ def get_status(conn):
         print('There is a BPF program currently attached to target.')
     else:
         print('There were some prolems in the last operation. Try again.')
+
+    return state
 
 def main():
     logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
