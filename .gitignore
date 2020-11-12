@@ -5,4 +5,5 @@ wiki
 Vagrantfile
 tools
 *.log
-bocker
+k8s.sh
+testing

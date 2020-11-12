@@ -1,8 +1,0 @@
-[Unit]
-Description=Start bpf-transfer
-
-[Service]
-ExecStart=/root/server.py
-
-[Install]
-WantedBy=multi-user.target
