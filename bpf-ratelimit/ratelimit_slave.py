@@ -10,7 +10,7 @@ DETACH = 0
 ATTACH = 1
 OK = 2
 
-PORT = 10002
+PORT = 10001
 
 class RatelimitD:
 
@@ -21,21 +21,34 @@ class RatelimitD:
 
 
     def __attach(self, conn):
-        uid = conn.recv(1024).decode().replace('-', '_')  # This is needed because in the filesystem dashes are replaced by underscores
-        size = struct.unpack('<i', conn.recv(4))[0]
+        print('started attaching')
+        conn.sendall(struct.pack('<i', OK)) # TODO error checking
 
+        uid = conn.recv(1024)
+        breakpoint()
+        uid = uid.decode().replace('-', '_')
+        #uid = conn.recv(1024).decode().replace('-', '_')  # This is needed because in the filesystem dashes are replaced by underscores
+        resp = conn.recv(4)
+        size = struct.unpack('<i', resp)[0]
+        #size = struct.unpack('<i', conn.recv(4))[0]
+
+        print('started receiving file')
         f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
         while size > 0:
+            breakpoint()
             data = conn.recv(1024)
             f.write(data)
             size -= 1024
         f.close()
 
+        print('started bpftool')
         try:
+            print('started creating prog')
             pod_path = f'/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod{uid}.slice'
             subprocess.check_call(['bpftool', 'prog', 'loadall', 'file.o', f'/sys/fs/bpf/{uid}', \
                 'type', 'cgroup/skb']) # Loading with bpftool
 
+            print('started attaching prog')
             subprocess.check_call(['bpftool', 'cgroup', 'attach', pod_path, \
                 'ingress', 'pinned', f'/sys/fs/bpf/{uid}/cgroup_skb_egress']) # Attaching to cgroup
 
@@ -52,6 +65,8 @@ class RatelimitD:
 
 
     def __detach(self, conn):
+        conn.sendall(struct.pack('<i', OK)) # TODO error checking
+
         uid = conn.recv(1024).decode().replace('-', '_')
         # subprocess.Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/user.slice/', \
         #        'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Removing from the kernel
@@ -68,16 +83,13 @@ class RatelimitD:
         while True:
             try:
                 conn, address = self.soc.accept()
-
                 logging.info('Accepted connection from ' + address[0] + '.')
 
                 cmd = struct.unpack('<i', conn.recv(4))[0]
-
                 logging.info('Command ' + str(cmd) + ' from ' + address[0] + '.')
 
                 if cmd == ATTACH:
-                    conn.sendall(struct.pack('<i', OK))
-                    self.__attach(conn )
+                    self.__attach(conn)
 
                 if cmd == DETACH:
                     self.__detach(conn)

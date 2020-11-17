@@ -1,10 +1,14 @@
-#!/usrbin/env python3
+from kubernetes import client, config, watch
 
+import argparse
 import logging
+import os
 import socket
 import struct
-import subprocess
-import os
+
+from bpf_generator import BPFGenerator
+
+pods = []
 
 DETACH = 0
 ATTACH = 1
@@ -12,85 +16,106 @@ OK = 2
 
 PORT = 10002
 
-class RatelimitD:
+def connect(host, port=10001):
+    try:
+        soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        soc.connect((host, port))
+        logging.info('Connection to ' + host + ' has been established.')
+        return soc
+    except ConnectionRefusedError:
+        logging.error('Establishing connection to host ' + host
+                      + ' on port ' + str(port) + ' has failed.')
 
-    def __init__(self):
-        self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.soc.bind(('0.0.0.0', PORT))
-        self.soc.listen()
-
-
-    def __attach(self, conn):
-        uid = conn.recv(1024).decode().replace('-', '_')  # This is needed because in the filesystem dashes are replaced by underscores
-        size = struct.unpack('<i', conn.recv(4))[0]
-
-        f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
-        while size > 0:
-            data = conn.recv(1024)
-            f.write(data)
-            size -= 1024
-        f.close()
-
-        try:
-            pod_path = f'/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod{uid}.slice'
-            subprocess.check_call(['bpftool', 'prog', 'loadall', 'file.o', f'/sys/fs/bpf/{uid}', \
-                'type', 'cgroup/skb']) # Loading with bpftool
-
-            subprocess.check_call(['bpftool', 'cgroup', 'attach', pod_path, \
-                'ingress', 'pinned', f'/sys/fs/bpf/{uid}/cgroup_skb_egress']) # Attaching to cgroup
-
-        except subprocess.CalledProcessError:
-            # logging.error('An error occurred while attaching the BPF program.')
-            # conn.sendall(struct.pack('<i', ERROR))
-            # self.state = ERROR
-            # self.__detach()
-            return
-
-        logging.info('BPF program attached.')
-        print('BPF program attached.')
-        conn.sendall(struct.pack('<i', OK))
+        return
 
 
-    def __detach(self, conn):
-        uid = conn.recv(1024).decode().replace('-', '_')
-        # subprocess.Popen(['bpftool', 'cgroup', 'detach', '/sys/fs/cgroup/user.slice/', \
-        #        'egress', 'pinned', '/sys/fs/bpf/shaper/cgroup_skb_egress']).wait() # Removing from the kernel
+def attach_shaper(name, host_ip, uid, rate):
+    soc = connect(host_ip)
+    BPFGenerator.generate(rate)
 
-        os.remove(f'/sys/fs/bpf/{uid}/cgroup_skb_egress')
-        os.rmdir(f'/sys/fs/bpf/{uid}') # Remove from file system
-        #logging.info('BPF program detached.')
-        print('BPF program detached.')
+    soc.sendall(struct.pack('<i', ATTACH))
 
-        conn.sendall(struct.pack('<i', OK))
+    resp = struct.unpack('<i', soc.recv(4))[0]
+
+    if resp == OK:
+        size = os.path.getsize('shaper.o')
+        breakpoint()
+        soc.sendall(bytes(uid, encoding='UTF-8'))
+        soc.sendall(struct.pack('<i', size))
+
+        with open('shaper.o', 'rb') as f:
+            while True:
+                data = f.read(1024)
+                soc.sendall(data)
+                if not data:
+                    break
+
+    print('BPF Program sent to remote machine.')
+
+    os.remove('shaper.o')
+
+    resp = struct.unpack('<i', soc.recv(4))[0]
+    if resp == OK:
+        pods.append(uid)
+        print('BPF Program attached successfully.')
+    else:
+        print('An error occurred while attaching the program. Try again.')
+
+    soc.close()
 
 
-    def start(self):
-        while True:
-            try:
-                conn, address = self.soc.accept()
+def detach_shaper(host_ip, uid):
+    soc = connect(host_ip)
 
-                logging.info('Accepted connection from ' + address[0] + '.')
+    soc.sendall(struct.pack('<i', DETACH))
 
-                cmd = struct.unpack('<i', conn.recv(4))[0]
+    resp = struct.unpack('<i', soc.recv(4))[0]
 
-                logging.info('Command ' + str(cmd) + ' from ' + address[0] + '.')
+    if resp == OK:
+        soc.sendall(bytes(uid, encoding='UTF-8'))
+    else:
+        print('Cannot detach.') # TODO Currently this is not functioning
 
-                if cmd == ATTACH:
-                    conn.sendall(struct.pack('<i', OK))
-                    self.__attach(conn )
+    resp = struct.unpack('<i', soc.recv(4))[0]
+    if resp == OK:
+        print('BPF Program detached successfully.')
+        pods.remove(uid)
+    else:
+        print('An error occurred while detaching the program.')
 
-                if cmd == DETACH:
-                    self.__detach(conn)
+    soc.close()
 
-            except KeyboardInterrupt:
-                break
-
-        conn.close()
 
 def main():
-    logging.basicConfig(filename='logfile.log', level=logging.DEBUG)
-    daemon = RatelimitD()
-    daemon.start()
+    config.load_kube_config()
+
+    v1 = client.CoreV1Api()
+    w = watch.Watch()
+
+    for event in w.stream(v1.list_pod_for_all_namespaces):
+        if event['object'].kind != 'Pod':
+            continue
+
+        try:
+            rate = int(event['object'].metadata.labels['rate'].rstrip('M'))
+        except KeyError:
+            continue
+
+        name = event['object'].metadata.name
+        event_type = event['type']
+        host_ip = event['object'].status.host_ip
+        phase = event['object'].status.phase
+        uid = event['object'].metadata.uid
+
+        if event_type == 'DELETED':
+            print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+            detach_shaper(host_ip, uid)
+
+        if event_type == 'MODIFIED' and host_ip:
+            if uid not in pods:
+                print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+                attach_shaper(name, host_ip, uid, rate)
+
 
 if __name__ == '__main__':
     main()
