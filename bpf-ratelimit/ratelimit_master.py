@@ -31,6 +31,8 @@ def connect(host, port=10001):
 
 def attach_shaper(name, host_ip, uid, rate):
     soc = connect(host_ip)
+    rate = rate * 125000
+    breakpoint()
     BPFGenerator.generate(rate)
 
     soc.sendall(struct.pack('<i', ATTACH))
