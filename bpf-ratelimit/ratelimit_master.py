@@ -16,7 +16,7 @@ OK = 2
 
 PORT = 10002
 
-def connect(host, port=10001):
+def connect(host, port=10002):
     try:
         soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         soc.connect((host, port))
@@ -32,7 +32,6 @@ def connect(host, port=10001):
 def attach_shaper(name, host_ip, uid, rate):
     soc = connect(host_ip)
     rate = rate * 125000
-    breakpoint()
     BPFGenerator.generate(rate)
 
     soc.sendall(struct.pack('<i', ATTACH))
@@ -40,17 +39,22 @@ def attach_shaper(name, host_ip, uid, rate):
     resp = struct.unpack('<i', soc.recv(4))[0]
 
     if resp == OK:
-        size = os.path.getsize('shaper.o')
-        breakpoint()
-        soc.sendall(bytes(uid, encoding='UTF-8'))
-        soc.sendall(struct.pack('<i', size))
+        try:
+            size = os.path.getsize('shaper.o')
+            soc.sendall(bytes(uid, encoding='UTF-8'))
+            __check_resp(soc)
+            soc.sendall(struct.pack('<i', size))
+            __check_resp(soc)
 
-        with open('shaper.o', 'rb') as f:
-            while True:
-                data = f.read(1024)
-                soc.sendall(data)
-                if not data:
-                    break
+            with open('shaper.o', 'rb') as f:
+                while True:
+                    data = f.read(1024)
+                    soc.sendall(data)
+                    if not data:
+                        break
+        except ConnectionError:
+            print("Error")
+            # TODO Handle exception
 
     print('BPF Program sent to remote machine.')
 
@@ -87,6 +91,12 @@ def detach_shaper(host_ip, uid):
 
     soc.close()
 
+def __check_resp(soc):
+    resp = struct.unpack('<i', soc.recv(4))[0]
+    if resp == OK:
+        return
+    else:
+        raise ConnectionError
 
 def main():
     config.load_kube_config()

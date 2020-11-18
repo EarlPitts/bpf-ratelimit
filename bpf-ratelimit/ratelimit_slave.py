@@ -10,7 +10,7 @@ DETACH = 0
 ATTACH = 1
 OK = 2
 
-PORT = 10001
+PORT = 10002
 
 class RatelimitD:
 
@@ -24,18 +24,14 @@ class RatelimitD:
         print('started attaching')
         conn.sendall(struct.pack('<i', OK)) # TODO error checking
 
-        uid = conn.recv(1024)
-        breakpoint()
-        uid = uid.decode().replace('-', '_')
-        #uid = conn.recv(1024).decode().replace('-', '_')  # This is needed because in the filesystem dashes are replaced by underscores
-        resp = conn.recv(4)
-        size = struct.unpack('<i', resp)[0]
-        #size = struct.unpack('<i', conn.recv(4))[0]
+        uid = conn.recv(1024).decode().replace('-', '_')  # This is needed because in the filesystem dashes are replaced by underscores
+        conn.sendall(struct.pack('<i', OK))
+        size = struct.unpack('<i', conn.recv(4))[0]
+        conn.sendall(struct.pack('<i', OK))
 
         print('started receiving file')
         f = open('file.o', 'wb') # Opening a new file for storing the bpf program sent by the client
         while size > 0:
-            breakpoint()
             data = conn.recv(1024)
             f.write(data)
             size -= 1024
