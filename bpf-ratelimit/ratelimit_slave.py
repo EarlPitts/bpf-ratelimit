@@ -1,5 +1,3 @@
-#!/usrbin/env python3
-
 import logging
 import socket
 import struct

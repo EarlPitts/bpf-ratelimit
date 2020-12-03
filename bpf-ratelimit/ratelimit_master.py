@@ -121,11 +121,19 @@ def main():
 
         if event_type == 'DELETED':
             print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+            # if DEBUG:
+            #     print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+            # else:
+            #     logging.info(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
             detach_shaper(host_ip, uid)
 
         if event_type == 'MODIFIED' and host_ip:
             if uid not in pods:
                 print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+                # if DEBUG:
+                #     print(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
+                # else:
+                #     logging.info(f'{name}, {host_ip}, {event_type}, {uid}, {rate}')
                 attach_shaper(name, host_ip, uid, rate)
 
 
